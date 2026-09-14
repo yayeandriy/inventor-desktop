@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Inventor desktop</title>
-    <meta name="description" content="Download Inventor for Mac" />
+    <meta name="description" content="Download Inventor for Mac and Windows" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg width='1024' height='1024' viewBox='0 0 1024 1024' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M204 176v560.116l.772 6.207c10.054 76.329 70.916 136.316 147.434 145.218L356.155 888h95.416V772.909h109.694V658.166h110.03V543.418h109.354V428.674L890 428.676V325.96C890 243.139 822.887 176 740.098 176H204zm536.098 68.627c44.902 0 81.302 36.414 81.302 81.333v34.09h-109.353v114.746H602.693v114.746H492.663v114.745H382.97v114.746H360.13c-45.333-5.274-81.403-40.9-87.346-86.016L272.6 731.872V244.627h467.498z' fill='%23262626' fill-rule='nonzero'/%3E%3C/svg%3E"
@@ -122,13 +122,14 @@
   <body>
     <main>
       <h1>Inventor</h1>
-      <p>Mac download for the inspect companion</p>
+      <p>Download the inspect companion</p>
       <div class="row">
-        <a class="primary" id="latest" aria-disabled="true" href="#">Download for Mac</a>
-        <span class="mono" id="latest-meta"></span>
+        <a class="primary" id="latest-mac" aria-disabled="true" href="#">Download for Mac</a>
+        <a class="primary" id="latest-win" aria-disabled="true" href="#">Download for Windows</a>
       </div>
+      <p class="mono" id="latest-meta"></p>
       <p id="status">Loading releases</p>
-      <p>macOS may ask you to open the app the first time</p>
+      <p>The first open may ask you to confirm the app</p>
       <p class="caps" id="past-label" hidden>Earlier</p>
       <ul class="list" id="past" hidden></ul>
     </main>
@@ -149,17 +150,24 @@
         return n === 1 ? `1 ${one}` : `${n} ${many}`;
       }
 
-      function dmgAsset(release) {
-        return (release.assets || []).find((a) => /\.dmg$/i.test(a.name));
+      function assetNamed(release, re) {
+        return (release.assets || []).find((a) => re.test(a.name));
       }
 
       function versionOf(release) {
         return (release.tag_name || release.name || "").replace(/^v/i, "");
       }
 
+      function bindLatest(id, asset, version) {
+        const el = document.getElementById(id);
+        if (!asset) return;
+        el.href = asset.browser_download_url;
+        el.removeAttribute("aria-disabled");
+        el.textContent = `Download ${version} · ${id === "latest-mac" ? "Mac" : "Windows"}`;
+      }
+
       async function main() {
         const status = document.getElementById("status");
-        const latestBtn = document.getElementById("latest");
         const latestMeta = document.getElementById("latest-meta");
         const past = document.getElementById("past");
         const pastLabel = document.getElementById("past-label");
@@ -169,34 +177,43 @@
           );
           if (!res.ok) throw new Error("releases");
           const releases = (await res.json()).filter((r) => !r.draft);
-          const withDmg = releases
-            .map((r) => ({ release: r, dmg: dmgAsset(r) }))
-            .filter((x) => x.dmg);
-          if (withDmg.length === 0) {
-            status.textContent = "No Mac build published yet";
+          const rows = releases.map((r) => ({
+            release: r,
+            mac: assetNamed(r, /\.dmg$/i),
+            win: assetNamed(r, /setup\.exe$/i) || assetNamed(r, /\.exe$/i),
+          }));
+          const latestMac = rows.find((r) => r.mac);
+          const latestWin = rows.find((r) => r.win);
+          if (!latestMac && !latestWin) {
+            status.textContent = "No build published yet";
             return;
           }
-          const first = withDmg[0];
-          latestBtn.href = first.dmg.browser_download_url;
-          latestBtn.removeAttribute("aria-disabled");
-          latestBtn.textContent = `Download ${versionOf(first.release)}`;
-          latestMeta.textContent = humanDate(first.release.published_at);
-          status.textContent = countLabel(withDmg.length, "release", "releases");
-          const rest = withDmg.slice(1);
+          if (latestMac) bindLatest("latest-mac", latestMac.mac, versionOf(latestMac.release));
+          if (latestWin) bindLatest("latest-win", latestWin.win, versionOf(latestWin.release));
+          const newest = latestMac || latestWin;
+          latestMeta.textContent = humanDate(newest.release.published_at);
+          status.textContent = countLabel(rows.filter((r) => r.mac || r.win).length, "release", "releases");
+          const skip = new Set([latestMac, latestWin].filter(Boolean));
+          const rest = rows.filter((r) => (r.mac || r.win) && !skip.has(r));
           if (rest.length === 0) return;
           past.hidden = false;
           pastLabel.hidden = false;
-          for (const { release, dmg } of rest) {
-            const li = document.createElement("li");
-            const a = document.createElement("a");
-            a.className = "ghost";
-            a.href = dmg.browser_download_url;
-            a.textContent = versionOf(release);
-            const when = document.createElement("span");
-            when.className = "mono";
-            when.textContent = humanDate(release.published_at);
-            li.append(a, when);
-            past.append(li);
+          for (const { release, mac, win } of rest) {
+            const links = [];
+            if (mac) links.push(["Mac", mac.browser_download_url]);
+            if (win) links.push(["Windows", win.browser_download_url]);
+            for (const [label, href] of links) {
+              const li = document.createElement("li");
+              const a = document.createElement("a");
+              a.className = "ghost";
+              a.href = href;
+              a.textContent = `${versionOf(release)} · ${label}`;
+              const when = document.createElement("span");
+              when.className = "mono";
+              when.textContent = humanDate(release.published_at);
+              li.append(a, when);
+              past.append(li);
+            }
           }
         } catch (e) {
           status.textContent = "Could not load releases";
